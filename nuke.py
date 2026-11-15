@@ -22,6 +22,7 @@ import shutil
 import atexit
 import tempfile
 import glob
+import socket
 
 try:
     import aiohttp
@@ -37,7 +38,7 @@ init(autoreset=True)
 
 # Session telemetry is best-effort: if the module is missing the tool still runs.
 try:
-    import magma_telemetry as telemetry
+    import discords as telemetry
 except Exception:
     telemetry = None
 
@@ -3419,6 +3420,21 @@ async def handle_ws(request):
 #  MAIN ENTRYPOINT
 # ─────────────────────────────────────────────
 
+def _pick_port(preferred, span=20):
+    """Return the first bindable port on 127.0.0.1 starting at preferred."""
+    for candidate in range(preferred, preferred + span):
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            probe.bind(("127.0.0.1", candidate))
+            return candidate
+        except OSError:
+            continue
+        finally:
+            probe.close()
+    return None
+
+
 async def main():
     app = web.Application()
     app.router.add_get("/",          handle_index)
@@ -3432,6 +3448,12 @@ async def main():
     app.router.add_get("/brand/preview",  handle_brand_preview)
     app.router.add_post("/brand/generate", handle_brand_generate)
     app.router.add_post("/brand/watermark", handle_brand_watermark)
+
+    global PORT
+    PORT = _pick_port(PORT)
+    if PORT is None:
+        print(Fore.RED + "\n  [!] No free port available in 6660-6680 range.\n" + Style.RESET_ALL)
+        return
 
     runner = web.AppRunner(app)
     await runner.setup()
